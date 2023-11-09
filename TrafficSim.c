@@ -57,6 +57,11 @@ char GetLightState(int stateNum) {
     else if (stateNum == 2) return 'R';
 }
 
+int GetLight(char direction) {
+    if (direction == '^' || direction == 'v') return ns_state;
+    else if (direction == '>' || direction == '<') return we_state;
+}
+
 int GetIntersectionNum(char direction) {
     if (direction == '^') return 0;
     else if (direction == '>') return 1;
@@ -359,6 +364,10 @@ void TrafficControl() {
 void CarControl(void* index) {
     boolean not_arrived = TRUE;
     cars car = all_cars[(int)index];
+    directions previous_car_dir;
+    if ((int)index == 0) previous_car_dir = car.direction;
+    else previous_car_dir = all_cars[(int)index - 1].direction;
+    
     while (not_arrived) {
         //sem_wait(&global_sem);
     
@@ -366,36 +375,62 @@ void CarControl(void* index) {
             not_arrived = FALSE;
     
             // ArriveIntersection
+            boolean crossing = FALSE;
             printf("Time %.1f: Car %d (%c %c) arriving\n", time_counter / 10.0, car.cid, car.direction.dir_original, car.direction.dir_target);
             if (car.direction.dir_original == '^') pthread_mutex_lock(&hol_south_mutex);
             if (car.direction.dir_original == '>') pthread_mutex_lock(&hol_west_mutex);
             if (car.direction.dir_original == 'v') pthread_mutex_lock(&hol_north_mutex);
             if (car.direction.dir_original == '<') pthread_mutex_lock(&hol_east_mutex);
-    
-            // checks for clearance + blocks for crossing
-            //printf("Blocking for crossing...\n");
-            // straight through
-            if (car.direction.dir_original == car.direction.dir_target) {
-                pthread_mutex_lock(&straight_mutex[GetIntersectionNum(car.direction.dir_original)]);
-                pthread_mutex_lock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
-                pthread_mutex_lock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 3) % 4]); // right turn from the right lane
-            }
-            // turning right
-            else if (GetIntersectionNum(car.direction.dir_original) == GetIntersectionNum(car.direction.dir_target) - 1) {
-                pthread_mutex_lock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
-                pthread_mutex_lock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
-                pthread_mutex_lock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
-            }
-            // turning left
-            else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) {
-                pthread_mutex_lock(&turn_left_mutex[GetIntersectionNum(car.direction.dir_original)]);
-                pthread_mutex_lock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // straight from opposite direction
-                pthread_mutex_lock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // right turn from opposite direction
+
+            // checks traffic light
+            int light_state;
+            while (!crossing) {
+                light_state = GetLight(car.direction.dir_original);
+
+                // green light
+                if (light_state == 0) {
+                    // straight through
+                    if (car.direction.dir_original == car.direction.dir_target) {
+                        pthread_mutex_lock(&straight_mutex[GetIntersectionNum(car.direction.dir_original)]);
+                        pthread_mutex_trylock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
+                        pthread_mutex_trylock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 3) % 4]); // right turn from the right lane
+                    }
+                    // turning right
+                    else if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) {
+                        pthread_mutex_lock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
+                        pthread_mutex_trylock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
+                        pthread_mutex_trylock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
+                    }
+                    // turning left
+                    else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) {
+                        pthread_mutex_lock(&turn_left_mutex[GetIntersectionNum(car.direction.dir_original)]);
+                        pthread_mutex_trylock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // straight from opposite direction
+                        pthread_mutex_trylock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // right turn from opposite direction
+                    }
+                    crossing = TRUE;
+                }
+                else if (light_state == 1) {
+                    pthread_mutex_lock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
+                    pthread_mutex_trylock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
+                    pthread_mutex_trylock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
+                    crossing = TRUE;
+                }
+                else if (light_state == 2) {
+                    // turning right
+                    if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) {
+                        pthread_mutex_lock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
+                        pthread_mutex_trylock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
+                        pthread_mutex_trylock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
+                        crossing = TRUE;
+                    }
+                    // else wait
+                }
             }
     
             // CrossIntersection
             // unlock head-of-line block
             printf("Time %.1f: Car %d (%c %c)          crossing\n", time_counter / 10.0, car.cid, car.direction.dir_original, car.direction.dir_target);
+            int crossing_time = time_counter;
             if (car.direction.dir_original == '^') pthread_mutex_unlock(&hol_south_mutex);
             if (car.direction.dir_original == '>') pthread_mutex_unlock(&hol_west_mutex);
             if (car.direction.dir_original == 'v') pthread_mutex_unlock(&hol_north_mutex);
@@ -403,15 +438,14 @@ void CarControl(void* index) {
 
             // unlock own's crossing block
             if (car.direction.dir_original == car.direction.dir_target)
-                pthread_mutex_lock(&straight_mutex[GetIntersectionNum(car.direction.dir_original)]); // straight through
+                pthread_mutex_unlock(&straight_mutex[GetIntersectionNum(car.direction.dir_original)]); // straight through
             else if (GetIntersectionNum(car.direction.dir_original) == GetIntersectionNum(car.direction.dir_target) - 1) 
-                pthread_mutex_lock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]); // turning right
+                pthread_mutex_unlock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]); // turning right
             else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) 
-                pthread_mutex_lock(&turn_left_mutex[GetIntersectionNum(car.direction.dir_original)]); // turning left
+                pthread_mutex_unlock(&turn_left_mutex[GetIntersectionNum(car.direction.dir_original)]); // turning left
             
-            boolean crossing = TRUE;
             while (crossing) {
-                if (time_counter >= car.arrival_time + GetCrossingDuration(car.direction) * 10) {
+                if (time_counter >= crossing_time + GetCrossingDuration(car.direction) * 10) {
                     crossing = FALSE;
                 }
             }
@@ -426,7 +460,7 @@ void CarControl(void* index) {
                 pthread_mutex_unlock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 3) % 4]); // right turn from the right lane
             }
             // turning right
-            else if (GetIntersectionNum(car.direction.dir_original) == GetIntersectionNum(car.direction.dir_target) - 1) {
+            else if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) {
                 pthread_mutex_unlock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
                 pthread_mutex_unlock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
                 pthread_mutex_unlock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
@@ -472,7 +506,7 @@ int main(void) {
     thread_cars = (pthread_t*)malloc(car_count * sizeof(pthread_t));
 
     // start the thread
-    printf("Starting thread, semaphore is unlocked.\n");
+    //printf("Starting thread, semaphore is unlocked.\n");
     pthread_create(thread_traffic_light, NULL, (void*)TrafficControl, NULL);
     for (int index = 0; index < car_count; index++) {
         pthread_create(&thread_cars[index], NULL, (void*)CarControl, (void*)index);
@@ -501,7 +535,7 @@ int main(void) {
     //getchar();
 
     //sem_wait(&global_sem);
-    printf("Main thread terminated.\n");
+    //printf("Main thread terminated.\n");
     free(thread_traffic_light);
     free(thread_cars);
 
