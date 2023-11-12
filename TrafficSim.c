@@ -284,5 +284,7 @@ int main(void) {
 
     // destroy semaphore
     sem_destroy(&global_sem);
+    printf("\n\nSimulation finished\n");
+    getchar();
     return 0;
 }
