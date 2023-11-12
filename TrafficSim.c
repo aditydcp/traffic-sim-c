@@ -1,4 +1,4 @@
-#define HAVE_STRUCT_TIMESPEC
+//#define HAVE_STRUCT_TIMESPEC
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -7,6 +7,7 @@
 #include <io.h>
 #include <ddkernel.h>
 //#include <unistd.h>
+#include <stdbool.h>
 
 sem_t global_sem, hol_block[4], turn_left_block[4], straight_block[4], turn_right_block[4];
 sem_t hol_south, hol_west, hol_north, hol_east;
@@ -39,7 +40,6 @@ typedef struct _cars {
 } cars;
 
 int car_count = 8;
-//cars car_zero = { .cid = 0, .arrival_time = 10, .direction.dir_original = '^', .direction.dir_target = '^' };
 cars all_cars[8] = {
     {.cid = 0, .arrival_time = 10, .direction.dir_original = '^', .direction.dir_target = '^' },
     {.cid = 1, .arrival_time = 19, .direction.dir_original = '^', .direction.dir_target = '^' },
@@ -87,85 +87,6 @@ int GetCrossingDuration(directions dir) {
     else if (GetIntersectionNum(dir.dir_original) == (GetIntersectionNum(dir.dir_target) + 1) % 4) return turn_left_dur_in_sec;
 }
 
-void BlockCrossingSemaphore(directions dir) {
-    // straight through
-    if (dir.dir_original == dir.dir_target) {
-        sem_wait(&straight_block[GetIntersectionNum(dir.dir_original)]);
-        sem_wait(&turn_left_block[(GetIntersectionNum(dir.dir_original) + 2) % 4]); // left turn from opposite direction
-        sem_wait(&turn_right_block[(GetIntersectionNum(dir.dir_original) + 3) % 4]); // right turn from the right lane
-    }
-    // turning right
-    else if (GetIntersectionNum(dir.dir_original) == GetIntersectionNum(dir.dir_target) - 1) {
-        sem_wait(&turn_right_block[GetIntersectionNum(dir.dir_original)]);
-        sem_wait(&straight_block[(GetIntersectionNum(dir.dir_original) + 1) % 4]); // straight from the left lane
-        sem_wait(&turn_left_block[(GetIntersectionNum(dir.dir_original) + 2) % 4]); // left turn from opposite direction
-    }
-    // turning left
-    else if (GetIntersectionNum(dir.dir_original) == (GetIntersectionNum(dir.dir_target) + 1) % 4) {
-        sem_wait(&turn_left_block[GetIntersectionNum(dir.dir_original)]);
-        sem_wait(&straight_block[(GetIntersectionNum(dir.dir_original) + 2) % 4]); // straight from opposite direction
-        sem_wait(&turn_right_block[(GetIntersectionNum(dir.dir_original) + 2) % 4]); // right turn from opposite direction
-    }
-}
-
-void UnblockCrossingSemaphore(directions dir) {
-    // straight through
-    if (dir.dir_original == dir.dir_target) {
-        sem_post(&straight_block[GetIntersectionNum(dir.dir_original)]);
-        sem_post(&turn_left_block[(GetIntersectionNum(dir.dir_original) + 2) % 4]); // left turn from opposite direction
-        sem_post(&turn_right_block[(GetIntersectionNum(dir.dir_original) + 3) % 4]); // right turn from the right lane
-    }
-    // turning right
-    else if (GetIntersectionNum(dir.dir_original) == GetIntersectionNum(dir.dir_target) - 1) {
-        sem_post(&turn_right_block[GetIntersectionNum(dir.dir_original)]);
-        sem_post(&straight_block[(GetIntersectionNum(dir.dir_original) + 1) % 4]); // straight from the left lane
-        sem_post(&turn_left_block[(GetIntersectionNum(dir.dir_original) + 2) % 4]); // left turn from opposite direction
-    }
-    // turning left
-    else if (GetIntersectionNum(dir.dir_original) == (GetIntersectionNum(dir.dir_target) + 1) % 4) {
-        sem_post(&turn_left_block[GetIntersectionNum(dir.dir_original)]);
-        sem_post(&straight_block[(GetIntersectionNum(dir.dir_original) + 2) % 4]); // straight from opposite direction
-        sem_post(&turn_right_block[(GetIntersectionNum(dir.dir_original) + 2) % 4]); // right turn from opposite direction
-    }
-}
-
-void ArriveIntersection(int id, directions dir) {
-    boolean crossing = FALSE;
-    while (!crossing) {
-        sem_wait(&hol_block[GetIntersectionNum(dir.dir_original)]);
-        printf("Time %.1f: Car %d (%c %c) arriving\n", time_counter / 10.0, id, dir.dir_original, dir.dir_target);
-
-        // wait until no one is blocking
-        BlockCrossingSemaphore(dir);
-        // when its okay to cross
-        crossing = TRUE;
-    }
-}
-
-void CrossIntersection(int id, directions dir) {
-    // unlock head-of-line block when start crossing
-    sem_post(&hol_block[GetIntersectionNum(dir.dir_original)]);
-    printf("Time %.1f: Car %d (%c %c)          crossing\n", time_counter / 10.0, id, dir.dir_original, dir.dir_target);
-    boolean crossing = TRUE;
-    // lock this specific crossing semaphore and sleep for the duration
-    while (crossing) {
-        if (time_counter >= all_cars[id].arrival_time + GetCrossingDuration(dir) * 10) {
-            crossing = FALSE;
-        }
-    }
-}
-
-void ExitIntersection(int id, directions dir) {
-    printf("Time %.1f: Car %d (%c %c)                   exiting\n", time_counter / 10.0, id, dir.dir_original, dir.dir_target);
-    UnblockCrossingSemaphore(dir);
-}
-
-void Car(int id, directions dir) {
-    ArriveIntersection(id, dir);
-    CrossIntersection(id, dir);
-    ExitIntersection(id, dir);
-}
-
 void TrafficControl() {
     while (time_counter < (sim_dur * 10)) {
         sem_wait(&global_sem);
@@ -177,6 +98,7 @@ void TrafficControl() {
         Sleep(100);
         time_counter++;
         //printf("Time  %.1f\n", time_counter / 10.0);
+        
         // Manipulate lights state
         if (time_counter % (red_dur_in_sec * 10) == (green_dur_in_sec * 10)) {
             traffic_state = 1;
@@ -196,173 +118,8 @@ void TrafficControl() {
     }
 }
 
-//void CarControl(void* index) {
-//    boolean not_arrived = TRUE;
-//    while (not_arrived) {
-//        //sem_wait(&global_sem);
-//        int idx = (int)index;
-//        
-//        if (time_counter == all_cars[idx].arrival_time) {
-//            //printf("Car %d arrived!\n", idx);
-//            Car(all_cars[idx].cid, all_cars[idx].direction);
-//            not_arrived = FALSE;
-//        }
-//    }
-//}
-
-//void CarControl(void* index) {
-//    boolean not_arrived = TRUE;
-//    cars car = all_cars[(int)index];
-//    int semval;
-//    while (not_arrived) {
-//        //sem_wait(&global_sem);
-//
-//        if (time_counter == car.arrival_time) {
-//            //printf("Car %d arrived!\n", idx);
-//            //Car(all_cars[idx].cid, all_cars[idx].direction);
-//            not_arrived = FALSE;
-//
-//            // ArriveIntersection
-//            sem_wait(&hol_block[GetIntersectionNum(car.direction.dir_original)]);
-//            
-//            if (car.direction.dir_original == '^') {
-//                sem_wait(&hol_south);
-//                sem_getvalue(&hol_south, &semval);
-//                printf("South Head-of-line Semaphore: %d\n", semval);
-//            }
-//            if (car.direction.dir_original == '>') {
-//                sem_wait(&hol_west);
-//                sem_getvalue(&hol_west, &semval);
-//                printf("West Head-of-line Semaphore: %d\n", semval);
-//            }
-//            if (car.direction.dir_original == 'v') {
-//                sem_wait(&hol_north);
-//                sem_getvalue(&hol_north, &semval);
-//                printf("North Head-of-line Semaphore: %d\n", semval);
-//            }
-//            if (car.direction.dir_original == '<') {
-//                sem_wait(&hol_east);
-//                sem_getvalue(&hol_east, &semval);
-//                printf("East Head - of - line Semaphore : % d\n", semval);
-//            }
-//
-//            printf("Time %.1f: Car %d (%c %c) arriving\n", time_counter / 10.0, car.cid, car.direction.dir_original, car.direction.dir_target);
-//            sem_getvalue(&hol_block[GetIntersectionNum(car.direction.dir_original)], &semval);
-//            printf("Head-of-line Block at %c Semaphore: %d\n", car.direction.dir_original, semval);
-//            
-//            printf("Checking all crossing blocks:\n");
-//            for (int i = 0; i < 4; i++) {
-//                sem_getvalue(&straight_block[i], &semval);
-//                printf("Straight from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//                sem_getvalue(&turn_left_block[i], &semval);
-//                printf("Left from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//                sem_getvalue(&turn_right_block[i], &semval);
-//                printf("Right from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//            }
-//
-//            // checks for clearance + blocks for crossing
-//            printf("Blocking for crossing...\n");
-//            // straight through
-//            if (car.direction.dir_original == car.direction.dir_target) {
-//                sem_wait(&straight_block[GetIntersectionNum(car.direction.dir_original)]);
-//                sem_wait(&turn_left_block[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
-//                sem_wait(&turn_right_block[(GetIntersectionNum(car.direction.dir_original) + 3) % 4]); // right turn from the right lane
-//            }
-//            // turning right
-//            else if (GetIntersectionNum(car.direction.dir_original) == GetIntersectionNum(car.direction.dir_target) - 1) {
-//                sem_wait(&turn_right_block[GetIntersectionNum(car.direction.dir_original)]);
-//                sem_wait(&straight_block[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
-//                sem_wait(&turn_left_block[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
-//            }
-//            // turning left
-//            else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) {
-//                sem_wait(&turn_left_block[GetIntersectionNum(car.direction.dir_original)]);
-//                sem_wait(&straight_block[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // straight from opposite direction
-//                sem_wait(&turn_right_block[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // right turn from opposite direction
-//            }
-//
-//            printf("Checking all crossing blocks:\n");
-//            for (int i = 0; i < 4; i++) {
-//                sem_getvalue(&straight_block[i], &semval);
-//                printf("Straight from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//                sem_getvalue(&turn_left_block[i], &semval);
-//                printf("Left from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//                sem_getvalue(&turn_right_block[i], &semval);
-//                printf("Right from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//            }
-//
-//            // CrossIntersection
-//            // unlock head-of-line block
-//            sem_post(&hol_block[GetIntersectionNum(car.direction.dir_original)]);
-//
-//            if (car.direction.dir_original == '^') {
-//                sem_post(&hol_south);
-//                sem_getvalue(&hol_south, &semval);
-//                printf("South Head-of-line Semaphore: %d\n", semval);
-//            }
-//            if (car.direction.dir_original == '>') {
-//                sem_post(&hol_west);
-//                sem_getvalue(&hol_west, &semval);
-//                printf("West Head-of-line Semaphore: %d\n", semval);
-//            }
-//            if (car.direction.dir_original == 'v') {
-//                sem_post(&hol_north);
-//                sem_getvalue(&hol_north, &semval);
-//                printf("North Head-of-line Semaphore: %d\n", semval);
-//            }
-//            if (car.direction.dir_original == '<') {
-//                sem_post(&hol_east);
-//                sem_getvalue(&hol_east, &semval);
-//                printf("East Head - of - line Semaphore : % d\n", semval);
-//            }
-//
-//            printf("Time %.1f: Car %d (%c %c)          crossing\n", time_counter / 10.0, car.cid, car.direction.dir_original, car.direction.dir_target);
-//            sem_getvalue(&hol_block[GetIntersectionNum(car.direction.dir_original)], &semval);
-//            printf("Head-of-line Block at %c Semaphore: %d\n", car.direction.dir_original, semval);
-//            boolean crossing = TRUE;
-//            while (crossing) {
-//                if (time_counter >= car.arrival_time + GetCrossingDuration(car.direction) * 10) {
-//                    crossing = FALSE;
-//                }
-//            }
-//
-//            // ExitIntersection
-//            printf("Time %.1f: Car %d (%c %c)                   exiting\n", time_counter / 10.0, car.cid, car.direction.dir_original, car.direction.dir_target);
-//            // unblocks for crossing
-//            // straight through
-//            if (car.direction.dir_original == car.direction.dir_target) {
-//                sem_post(&straight_block[GetIntersectionNum(car.direction.dir_original)]);
-//                sem_post(&turn_left_block[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
-//                sem_post(&turn_right_block[(GetIntersectionNum(car.direction.dir_original) + 3) % 4]); // right turn from the right lane
-//            }
-//            // turning right
-//            else if (GetIntersectionNum(car.direction.dir_original) == GetIntersectionNum(car.direction.dir_target) - 1) {
-//                sem_post(&turn_right_block[GetIntersectionNum(car.direction.dir_original)]);
-//                sem_post(&straight_block[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
-//                sem_post(&turn_left_block[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
-//            }
-//            // turning left
-//            else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) {
-//                sem_post(&turn_left_block[GetIntersectionNum(car.direction.dir_original)]);
-//                sem_post(&straight_block[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // straight from opposite direction
-//                sem_post(&turn_right_block[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // right turn from opposite direction
-//            }
-//
-//            printf("Checking all crossing blocks:\n");
-//            for (int i = 0; i < 4; i++) {
-//                sem_getvalue(&straight_block[i], &semval);
-//                printf("Straight from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//                sem_getvalue(&turn_left_block[i], &semval);
-//                printf("Left from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//                sem_getvalue(&turn_right_block[i], &semval);
-//                printf("Right from %c Block Semaphore: %d\n", GetIntersectionSymbol(i), semval);
-//            }
-//        }
-//    }
-//}
-
 void CarControl(void* index) {
-    boolean not_arrived = TRUE;
+    bool not_arrived = true;
     cars car = all_cars[(int)index];
     directions previous_car_dir;
     if ((int)index == 0) previous_car_dir = car.direction;
@@ -372,11 +129,13 @@ void CarControl(void* index) {
         //sem_wait(&global_sem);
     
         if (time_counter == car.arrival_time) {
-            not_arrived = FALSE;
+            not_arrived = false;
     
             // ArriveIntersection
-            boolean crossing = FALSE;
+            bool crossing = false;
             printf("Time %.1f: Car %d (%c %c) arriving\n", time_counter / 10.0, car.cid, car.direction.dir_original, car.direction.dir_target);
+
+            // set head-of-line block
             if (car.direction.dir_original == '^') pthread_mutex_lock(&hol_south_mutex);
             if (car.direction.dir_original == '>') pthread_mutex_lock(&hol_west_mutex);
             if (car.direction.dir_original == 'v') pthread_mutex_lock(&hol_north_mutex);
@@ -387,50 +146,46 @@ void CarControl(void* index) {
             while (!crossing) {
                 light_state = GetLight(car.direction.dir_original);
 
-                // green light
-                if (light_state == 0) {
-                    // straight through
-                    if (car.direction.dir_original == car.direction.dir_target) {
+                if (light_state == 0) { // for green light
+                    if (car.direction.dir_original == car.direction.dir_target) { // for straight through
                         pthread_mutex_lock(&straight_mutex[GetIntersectionNum(car.direction.dir_original)]);
                         pthread_mutex_trylock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
                         pthread_mutex_trylock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 3) % 4]); // right turn from the right lane
                     }
-                    // turning right
-                    else if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) {
+                    else if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) { // for turning right
                         pthread_mutex_lock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
                         pthread_mutex_trylock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
                         pthread_mutex_trylock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
                     }
-                    // turning left
-                    else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) {
+                    else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) { // for turning left
                         pthread_mutex_lock(&turn_left_mutex[GetIntersectionNum(car.direction.dir_original)]);
                         pthread_mutex_trylock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // straight from opposite direction
                         pthread_mutex_trylock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // right turn from opposite direction
                     }
-                    crossing = TRUE;
+                    crossing = true;
                 }
-                else if (light_state == 1) {
+                else if (light_state == 1) { // for yellow light
                     pthread_mutex_lock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
                     pthread_mutex_trylock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
                     pthread_mutex_trylock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
-                    crossing = TRUE;
+                    crossing = true;
                 }
-                else if (light_state == 2) {
-                    // turning right
-                    if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) {
+                else if (light_state == 2) { // for red light
+                    if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) { // for turning right
                         pthread_mutex_lock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
                         pthread_mutex_trylock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
                         pthread_mutex_trylock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
-                        crossing = TRUE;
+                        crossing = true;
                     }
-                    // else wait
+                    // else wait by loop continuously
                 }
             }
     
             // CrossIntersection
-            // unlock head-of-line block
             printf("Time %.1f: Car %d (%c %c)          crossing\n", time_counter / 10.0, car.cid, car.direction.dir_original, car.direction.dir_target);
             int crossing_time = time_counter;
+
+            // unlock head-of-line block
             if (car.direction.dir_original == '^') pthread_mutex_unlock(&hol_south_mutex);
             if (car.direction.dir_original == '>') pthread_mutex_unlock(&hol_west_mutex);
             if (car.direction.dir_original == 'v') pthread_mutex_unlock(&hol_north_mutex);
@@ -446,27 +201,25 @@ void CarControl(void* index) {
             
             while (crossing) {
                 if (time_counter >= crossing_time + GetCrossingDuration(car.direction) * 10) {
-                    crossing = FALSE;
+                    crossing = false;
                 }
             }
     
             // ExitIntersection
             printf("Time %.1f: Car %d (%c %c)                   exiting\n", time_counter / 10.0, car.cid, car.direction.dir_original, car.direction.dir_target);
+            
             // unblocks for crossing
-            // straight through
-            if (car.direction.dir_original == car.direction.dir_target) {
+            if (car.direction.dir_original == car.direction.dir_target) { // for straight through
                 pthread_mutex_unlock(&straight_mutex[GetIntersectionNum(car.direction.dir_original)]);
                 pthread_mutex_unlock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
                 pthread_mutex_unlock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 3) % 4]); // right turn from the right lane
             }
-            // turning right
-            else if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) {
+            else if ((GetIntersectionNum(car.direction.dir_original) + 1) % 4 == GetIntersectionNum(car.direction.dir_target)) { // for turning right
                 pthread_mutex_unlock(&turn_right_mutex[GetIntersectionNum(car.direction.dir_original)]);
                 pthread_mutex_unlock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 1) % 4]); // straight from the left lane
                 pthread_mutex_unlock(&turn_left_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // left turn from opposite direction
             }
-            // turning left
-            else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) {
+            else if (GetIntersectionNum(car.direction.dir_original) == (GetIntersectionNum(car.direction.dir_target) + 1) % 4) { // for turning left
                 pthread_mutex_unlock(&turn_left_mutex[GetIntersectionNum(car.direction.dir_original)]);
                 pthread_mutex_unlock(&straight_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // straight from opposite direction
                 pthread_mutex_unlock(&turn_right_mutex[(GetIntersectionNum(car.direction.dir_original) + 2) % 4]); // right turn from opposite direction
@@ -476,18 +229,10 @@ void CarControl(void* index) {
 }
 
 int main(void) {
+    // initialize semaphore
     sem_init(&global_sem, 1, 1);
-    /*sem_init(&hol_north, 1, 1);
-    sem_init(&hol_south, 1, 1);
-    sem_init(&hol_west, 1, 1);
-    sem_init(&hol_east, 1, 1);*/
-    /*for (int intersection = 0; intersection < 4; intersection++) {
-        sem_init(&hol_block[intersection], 1, 1);
-        sem_init(&turn_left_block[intersection], 1, 1);
-        sem_init(&straight_block[intersection], 1, 1);
-        sem_init(&turn_right_block[intersection], 1, 1);
-    }*/
 
+    // initialize mutexes
     pthread_mutex_init(&hol_north_mutex, NULL);
     pthread_mutex_init(&hol_south_mutex, NULL);
     pthread_mutex_init(&hol_west_mutex, NULL);
@@ -499,6 +244,7 @@ int main(void) {
         pthread_mutex_init(&turn_right_mutex[i], NULL);
     }
 
+    // initialize threads
     pthread_t* thread_traffic_light;
     pthread_t* thread_cars;
 
@@ -506,22 +252,10 @@ int main(void) {
     thread_cars = (pthread_t*)malloc(car_count * sizeof(pthread_t));
 
     // start the thread
-    //printf("Starting thread, semaphore is unlocked.\n");
     pthread_create(thread_traffic_light, NULL, (void*)TrafficControl, NULL);
     for (int index = 0; index < car_count; index++) {
         pthread_create(&thread_cars[index], NULL, (void*)CarControl, (void*)index);
     }
-
-    //getchar();
-
-    //sem_wait(&global_sem);
-    //printf("Semaphore locked.\n");
-
-    //// do stuff with whatever is shared between threads
-    //getchar();
-
-    //printf("Semaphore unlocked.\n");
-    //sem_post(&global_sem);
 
     if (pthread_join(*thread_traffic_light, NULL) != 0) {
         return 1;
@@ -532,13 +266,11 @@ int main(void) {
         }
     }
 
-    //getchar();
-
-    //sem_wait(&global_sem);
-    //printf("Main thread terminated.\n");
+    // free threads
     free(thread_traffic_light);
     free(thread_cars);
 
+    // destroy mutexes
     pthread_mutex_destroy(&hol_north_mutex);
     pthread_mutex_destroy(&hol_south_mutex);
     pthread_mutex_destroy(&hol_west_mutex);
@@ -549,16 +281,10 @@ int main(void) {
         pthread_mutex_destroy(&turn_right_mutex[i]);
     }
 
-    /*sem_destroy(&global_sem);
-    sem_destroy(&hol_north);
-    sem_destroy(&hol_south);
-    sem_destroy(&hol_west);
-    sem_destroy(&hol_east);
-    for (int intersection = 0; intersection < 4; intersection++) {
-        sem_destroy(&hol_block[intersection]);
-        sem_destroy(&turn_left_block[intersection]);
-        sem_destroy(&straight_block[intersection]);
-        sem_destroy(&turn_right_block[intersection]);
-    }*/
+    // destroy semaphore
+    sem_destroy(&global_sem);
+
+    printf("\n\nSimulation finished\n");
+    getchar();
     return 0;
 }
