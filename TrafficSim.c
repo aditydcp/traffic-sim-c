@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include <io.h>
+//#include <io.h>
 #include <ddkernel.h>
 //#include <unistd.h>
 #include <stdbool.h>
