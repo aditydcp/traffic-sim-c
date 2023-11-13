@@ -21,6 +21,14 @@
   <ItemGroup>
     <ClCompile Include="TrafficSim.c" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\ucrt\io.h">
+      <DeploymentContent>true</DeploymentContent>
+    </ClInclude>
+    <ClInclude Include="C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\um\ddkernel.h">
+      <DeploymentContent>true</DeploymentContent>
+    </ClInclude>
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
