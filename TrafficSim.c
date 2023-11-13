@@ -118,12 +118,13 @@ void TrafficControl() {
     }
 }
 
-void CarControl(void* index) {
+void CarControl(void* idx) {
     bool not_arrived = true;
-    cars car = all_cars[(int)index];
+    int index = (intptr_t)idx;
+    cars car = all_cars[index];
     directions previous_car_dir;
-    if ((int)index == 0) previous_car_dir = car.direction;
-    else previous_car_dir = all_cars[(int)index - 1].direction;
+    if (index == 0) previous_car_dir = car.direction;
+    else previous_car_dir = all_cars[index - 1].direction;
     
     while (not_arrived) {
         //sem_wait(&global_sem);
@@ -254,7 +255,7 @@ int main(void) {
     // start the thread
     pthread_create(thread_traffic_light, NULL, (void*)TrafficControl, NULL);
     for (int index = 0; index < car_count; index++) {
-        pthread_create(&thread_cars[index], NULL, (void*)CarControl, (void*)index);
+        pthread_create(&thread_cars[index], NULL, (void*)CarControl, (void*)(intptr_t)index);
     }
 
     if (pthread_join(*thread_traffic_light, NULL) != 0) {
